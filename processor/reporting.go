@@ -3,102 +3,164 @@ package processor
 import (
 	"encoding/json"
 
-	"github.com/rudderlabs/rudder-server/jobsdb"
 	"github.com/rudderlabs/rudder-server/processor/transformer"
 	"github.com/rudderlabs/rudder-server/utils/types"
 )
 
-// ReportingService is responsible for capturing reporting metrics
-type ReportingService interface {
-	// TrackEventStatus tracks a new event status
-	TrackEventStatus(pu string, event transformer.TransformerResponseT, status string, code int, resp string, raw json.RawMessage)
+// eventGroup composite key
+type eventGroup struct {
+	sourceId      string
+	destinationId string
+	sourceBatchId string
+	eventName     string
+	eventType     string
+}
 
-	// StageCompleted marks the end of the current stage
-	StageCompleted(terminal bool)
+// statusGroup composite key
+type statusGroup struct {
+	status     string
+	statusCode int
+}
+
+// EventGroupInfo provides information on an event group
+type EventGroupInfo interface {
+	// GetKey returns the key of the event group
+	GetKey() eventGroup
+	// GetMetadata returns the metadata of the event group
+	GetMetadata() *MetricMetadata
+}
+
+// ReportingRegistry is responsible for capturing reporting metrics
+type ReportingRegistry interface {
+	// NextEventPu sets the next expected PU where track events will be recorded for the event group
+	NextEventPu(event EventGroupInfo, next string, terminal bool)
+
+	// TrackEventStatus tracks the event status in the current pu of the event group
+	TrackEventStatus(event EventGroupInfo, status string, code int, resp string, raw json.RawMessage)
+
 	// GenerateReport generates the report
 	GenerateReport() []*types.PUReportedMetric
 }
 
-// NewReportingService creates a new ReportingService.
-// The initial parameter dictates whether the first PU will be
-// considered to be the first one or not
-func NewReportingService(initial bool) ReportingService {
+// NewReportingRegistry creates a new registry.
+// The initial parameter dictates whether reporting
+// is performed from the beggining of the processing
+// or from an intermediate stage
+func NewReportingRegistry(initial bool) ReportingRegistry {
 	return &reportingService{
 		initial: initial,
-		events:  map[eventKey]eventKeyReports{},
+		events:  map[eventGroup]*eventGroupStages{},
 	}
+}
+
+// eventGroupStages holds reports for all pu stages a specific event group
+type eventGroupStages struct {
+	metadata *MetricMetadata
+	pus      []string
+	reports  map[string]*puReport
+}
+
+func (r *eventGroupStages) getCurrentPuName() string {
+	if len(r.pus) == 0 {
+		return ""
+	}
+	return r.pus[len(r.pus)-1]
+}
+
+func (r *eventGroupStages) getCurrentPu() *puReport {
+	lastPu := r.getCurrentPuName()
+	return r.reports[lastPu]
+}
+
+func (r *eventGroupStages) nextPu(pu string, terminal bool) {
+	lastPu := r.getCurrentPuName()
+	if lastPu != pu {
+		r.pus = append(r.pus, pu)
+		initial := lastPu == ""
+		next := &puReport{
+			details:  types.CreatePUDetails(lastPu, pu, terminal, initial),
+			statuses: map[statusGroup]*types.StatusDetail{},
+		}
+		r.reports[pu] = next
+	}
+}
+
+func (r *eventGroupStages) calculateDiffs(eventName, eventType string) {
+	for idx, pu := range r.pus {
+		if idx == 0 {
+			continue
+		}
+		current := r.reports[pu]
+		previous := r.reports[r.pus[idx-1]]
+		if diff := previous.total - current.total; diff != 0 {
+			diffKey := statusGroup{status: types.DiffStatus, statusCode: 0}
+			current.statuses[diffKey] = types.CreateStatusDetail(
+				types.DiffStatus,
+				diff,
+				0,
+				"",
+				[]byte(`{}`),
+				eventName,
+				eventType)
+		}
+	}
+}
+
+// puReport holds reports for a specific event group's pu
+type puReport struct {
+	completed bool
+	details   *types.PUDetails
+	total     int64
+	statuses  map[statusGroup]*types.StatusDetail
+}
+
+func (r *puReport) getOrCreateStatus(key statusGroup, code int, resp string, raw json.RawMessage, eventName, eventType string) *types.StatusDetail {
+	status, ok := r.statuses[key]
+	if !ok {
+		status = types.CreateStatusDetail(key.status, 0, code, resp, raw, eventName, eventType)
+		r.statuses[key] = status
+	}
+	return status
 }
 
 type reportingService struct {
 	initial bool
-	events  map[eventKey]eventKeyReports
+	events  map[eventGroup]*eventGroupStages
 }
 
-func (r *reportingService) TrackEventStatus(pu string, event transformer.TransformerResponseT, status string, code int, resp string, raw json.RawMessage) {
-	evKey := eventKey{
-		sourceId:      event.Metadata.SourceID,
-		destinationId: event.Metadata.DestinationID,
-		sourceBatchId: event.Metadata.SourceBatchID,
-		eventName:     event.Metadata.EventName,
-		eventType:     event.Metadata.EventType,
-	}
+func (r *reportingService) NextEventPu(event EventGroupInfo, next string, terminal bool) {
+	report := r.getOrCreateEventKeyReport(event)
+	report.nextPu(next, terminal)
+}
+
+func (r *reportingService) TrackEventStatus(event EventGroupInfo, status string, code int, resp string, raw json.RawMessage) {
+	evKey := event.GetKey()
+	report := r.getOrCreateEventKeyReport(event)
+	key := statusGroup{status, code}
+	currentPuReport := report.getCurrentPu()
+	currentPuReport.total++
+	s := currentPuReport.getOrCreateStatus(key, code, resp, raw, evKey.eventName, evKey.eventType)
+	s.Count++
+}
+
+func (r *reportingService) getOrCreateEventKeyReport(event EventGroupInfo) *eventGroupStages {
+	evKey := event.GetKey()
 	ekr, ok := r.events[evKey]
 	if !ok {
-		ekr = eventKeyReports{
-			metadata: &MetricMetadata{
-				sourceID:                event.Metadata.SourceID,
-				destinationID:           event.Metadata.DestinationID,
-				sourceBatchID:           event.Metadata.SourceBatchID,
-				sourceTaskID:            event.Metadata.SourceTaskID,
-				sourceTaskRunID:         event.Metadata.SourceTaskRunID,
-				sourceJobID:             event.Metadata.SourceJobID,
-				sourceJobRunID:          event.Metadata.SourceJobRunID,
-				sourceDefinitionID:      event.Metadata.SourceDefinitionID,
-				destinationDefinitionID: event.Metadata.DestinationDefinitionID,
-				sourceCategory:          event.Metadata.SourceCategory,
-			},
-			puReports: map[string]*puReport{},
+		ekr = &eventGroupStages{
+			metadata: event.GetMetadata(),
+			pus:      make([]string, 1),
+			reports:  map[string]*puReport{},
 		}
 		r.events[evKey] = ekr
 	}
-
-	k := statusKey{jobsdb.Succeeded.State, code}
-	currentPuReport, ok := ekr.puReports[pu]
-	if !ok {
-
-		// this marks the end of the previous pu, close previous pu if not already closed
-		previousPuReport, hasPrevious := ekr.puReports[ekr.currentPU]
-		if hasPrevious && !previousPuReport.completed {
-			ekr.completeCurrentPU(evKey, false)
-		}
-
-		// prepare next pu
-		currentPuReport = &puReport{
-			details:  types.CreatePUDetails(ekr.currentPU, pu, false, !hasPrevious && r.initial),
-			statuses: map[statusKey]*types.StatusDetail{},
-		}
-		ekr.puReports[pu] = currentPuReport
-		ekr.currentPU = pu
-	}
-	currentPuReport.total++
-	s, ok := currentPuReport.statuses[k]
-	if !ok {
-		s = types.CreateStatusDetail(k.status, 0, code, resp, raw, evKey.eventName, evKey.eventType)
-	}
-	if !currentPuReport.completed {
-		s.Count++ // TODO panic?!
-	}
-}
-
-func (r *reportingService) StageCompleted(terminal bool) {
-	for evKey, ekr := range r.events {
-		ekr.completeCurrentPU(evKey, terminal)
-	}
+	return ekr
 }
 
 func (r *reportingService) GenerateReport() []*types.PUReportedMetric {
 	reports := make([]*types.PUReportedMetric, 0)
-	for _, eventReports := range r.events {
+	for evKey, eventReports := range r.events {
+		eventReports.calculateDiffs(evKey.eventName, evKey.eventType)
 		connection := *types.CreateConnectionDetail(
 			eventReports.metadata.sourceID,
 			eventReports.metadata.destinationID,
@@ -110,7 +172,12 @@ func (r *reportingService) GenerateReport() []*types.PUReportedMetric {
 			eventReports.metadata.sourceDefinitionID,
 			eventReports.metadata.destinationDefinitionID,
 			eventReports.metadata.sourceCategory)
-		for _, puReport := range eventReports.puReports {
+
+		for idx, pu := range eventReports.pus {
+			if idx == 0 && !r.initial {
+				continue // skip first iteration
+			}
+			puReport := eventReports.reports[pu]
 			for _, status := range puReport.statuses {
 				report := &types.PUReportedMetric{
 					ConnectionDetails: connection,
@@ -119,60 +186,52 @@ func (r *reportingService) GenerateReport() []*types.PUReportedMetric {
 				}
 				reports = append(reports, report)
 			}
-
 		}
 	}
 	return reports
 }
 
-// eventKeyReports holds reports for a specific event key
-type eventKeyReports struct {
-	metadata           *MetricMetadata
-	previousStageCount int64
-	currentPU          string
-	puReports          map[string]*puReport
-}
-
-// completeCurrentPU completes the current PU if it is not already completed
-func (r *eventKeyReports) completeCurrentPU(evKey eventKey, terminal bool) {
-	currentPUReport, ok := r.puReports[r.currentPU]
-	if ok && !currentPUReport.completed { // ignore if already completed (idempotent operation)
-		currentPUReport.completed = true // mark as completed
-		currentPUReport.details.TerminalPU = terminal
-		if diff := r.previousStageCount - currentPUReport.total; r.previousStageCount > 0 && diff != 0 {
-			stKey := statusKey{status: types.DiffStatus, statusCode: 0}
-			currentPUReport.statuses[stKey] = types.CreateStatusDetail(
-				types.DiffStatus,
-				diff,
-				0,
-				"",
-				[]byte(`{}`),
-				evKey.eventName,
-				evKey.eventType)
-		}
-		r.previousStageCount = currentPUReport.total
+func EventGroupInfoAdapter(event *transformer.TransformerResponseT) EventGroupInfo {
+	return &transformerEventReportInfo{
+		TransformerResponseT: event,
 	}
 }
 
-// puReport holds reports for a specific event key and pu
-type puReport struct {
-	completed bool
-	details   *types.PUDetails
-	total     int64
-	statuses  map[statusKey]*types.StatusDetail
+// transformerEventReportInfo is an adapter for
+type transformerEventReportInfo struct {
+	*transformer.TransformerResponseT
+	key      *eventGroup
+	metadata *MetricMetadata
 }
 
-// eventKey composite key
-type eventKey struct {
-	sourceId      string
-	destinationId string
-	sourceBatchId string
-	eventName     string
-	eventType     string
+func (r *transformerEventReportInfo) GetKey() eventGroup {
+	if r.key == nil {
+		r.key = &eventGroup{
+			sourceId:      r.Metadata.SourceID,
+			destinationId: r.Metadata.DestinationID,
+			sourceBatchId: r.Metadata.SourceBatchID,
+			eventName:     r.Metadata.EventName,
+			eventType:     r.Metadata.EventType,
+		}
+	}
+	return *r.key
 }
 
-// statusKey composite key
-type statusKey struct {
-	status     string
-	statusCode int
+func (r *transformerEventReportInfo) GetMetadata() *MetricMetadata {
+	if r.metadata == nil {
+		r.metadata = &MetricMetadata{
+			sourceID:                r.Metadata.SourceID,
+			destinationID:           r.Metadata.DestinationID,
+			sourceBatchID:           r.Metadata.SourceBatchID,
+			sourceTaskID:            r.Metadata.SourceTaskID,
+			sourceTaskRunID:         r.Metadata.SourceTaskRunID,
+			sourceJobID:             r.Metadata.SourceJobID,
+			sourceJobRunID:          r.Metadata.SourceJobRunID,
+			sourceDefinitionID:      r.Metadata.SourceDefinitionID,
+			destinationDefinitionID: r.Metadata.DestinationDefinitionID,
+			sourceCategory:          r.Metadata.SourceCategory,
+		}
+	}
+
+	return r.metadata
 }
