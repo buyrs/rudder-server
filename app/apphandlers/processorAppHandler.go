@@ -44,7 +44,6 @@ type ProcessorApp struct {
 }
 
 var (
-	gatewayDB         jobsdb.HandleT
 	ReadTimeout       time.Duration
 	ReadHeaderTimeout time.Duration
 	WriteTimeout      time.Duration
@@ -112,7 +111,6 @@ func (processor *ProcessorApp) StartRudderCore(ctx context.Context, options *app
 		jobsdb.WithPreBackupHandlers(prebackupHandlers),
 	)
 	defer gwDBForProcessor.Close()
-	gatewayDB = *gwDBForProcessor
 	routerDB := jobsdb.NewForReadWrite(
 		"rt",
 		jobsdb.WithClearDB(options.ClearDB),
@@ -254,7 +252,7 @@ func (processor *ProcessorApp) StartRudderCore(ctx context.Context, options *app
 	}
 
 	g.Go(func() error {
-		return startHealthWebHandler(ctx)
+		return startHealthWebHandler(ctx, gwDBForProcessor)
 	})
 
 	g.Go(func() error {
@@ -271,7 +269,11 @@ func (processor *ProcessorApp) HandleRecovery(options *app.Options) {
 	db.HandleNullRecovery(options.NormalMode, options.DegradedMode, options.MigrationMode, misc.AppStartTime, app.PROCESSOR)
 }
 
-func startHealthWebHandler(ctx context.Context) error {
+func startHealthWebHandler(ctx context.Context, jobsDB jobsdb.JobsDB) error {
+
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		app.HealthHandler(w, r, jobsDB)
+	}
 	//Port where Processor health handler is running
 	pkgLogger.Infof("Starting in %d", webPort)
 	srvMux := mux.NewRouter()
@@ -296,8 +298,4 @@ func startHealthWebHandler(ctx context.Context) error {
 	})
 
 	return g.Wait()
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	app.HealthHandler(w, r, &gatewayDB)
 }
