@@ -1547,7 +1547,7 @@ func (proc *HandleT) Store(in storeMessage) {
 	//XX: Need to do this in a transaction
 	if len(batchDestJobs) > 0 {
 		proc.logger.Debug("[Processor] Total jobs written to batch router : ", len(batchDestJobs))
-		err := proc.batchRouterDB.Store(batchDestJobs)
+		err := proc.batchRouterDB.Store(context.TODO(), batchDestJobs)
 		if err != nil {
 			proc.logger.Errorf("Store into batch router table failed with error: %v", err)
 			proc.logger.Errorf("batchDestJobs: %v", batchDestJobs)
@@ -1573,7 +1573,7 @@ func (proc *HandleT) Store(in storeMessage) {
 	if len(destJobs) > 0 {
 		proc.logger.Debug("[Processor] Total jobs written to router : ", len(destJobs))
 
-		err := proc.routerDB.Store(destJobs)
+		err := proc.routerDB.Store(context.TODO(), destJobs)
 		if err != nil {
 			proc.logger.Errorf("Store into router table failed with error: %v", err)
 			proc.logger.Errorf("destJobs: %v", destJobs)
@@ -1601,7 +1601,7 @@ func (proc *HandleT) Store(in storeMessage) {
 	}
 	if len(in.procErrorJobs) > 0 {
 		proc.logger.Debug("[Processor] Total jobs written to proc_error: ", len(in.procErrorJobs))
-		err := proc.errorDB.Store(in.procErrorJobs)
+		err := proc.errorDB.Store(context.TODO(), in.procErrorJobs)
 		if err != nil {
 			proc.logger.Errorf("Store into proc error table failed with error: %v", err)
 			proc.logger.Errorf("procErrorJobs: %v", in.procErrorJobs)
@@ -1614,7 +1614,7 @@ func (proc *HandleT) Store(in storeMessage) {
 	txnStart := time.Now()
 	err := proc.gatewayDB.WithUpdateSafeTx(func(tx jobsdb.UpdateSafeTx) error {
 
-		err := proc.gatewayDB.UpdateJobStatusInTx(tx, statusList, []string{GWCustomVal}, nil)
+		err := proc.gatewayDB.UpdateJobStatusInTx(context.TODO(), tx, statusList, []string{GWCustomVal}, nil)
 		if err != nil {
 			pkgLogger.Errorf("Error occurred while updating gateway jobs statuses. Panicking. Err: %v", err)
 			return err
@@ -2038,7 +2038,7 @@ func (proc *HandleT) saveFailedJobs(failedJobs []*jobsdb.JobT) {
 			router.PrepareJobRunIdAbortedEventsMap(failedJob.Parameters, jobRunIDAbortedEventsMap)
 		}
 
-		_ = proc.errorDB.WithTx(func(tx *sql.Tx) error {
+		_ = proc.errorDB.WithTx(context.TODO(), func(tx *sql.Tx) error {
 			// TODO: error propagation
 			router.GetFailedEventsManager().SaveFailedRecordIDs(jobRunIDAbortedEventsMap, tx)
 			return nil
@@ -2183,7 +2183,7 @@ func (proc *HandleT) markExecuting(jobs []*jobsdb.JobT) error {
 		}
 	}
 	//Mark the jobs as executing
-	err := proc.gatewayDB.UpdateJobStatus(statusList, []string{GWCustomVal}, nil)
+	err := proc.gatewayDB.UpdateJobStatus(context.TODO(), statusList, []string{GWCustomVal}, nil)
 	if err != nil {
 		return fmt.Errorf("marking jobs as executing: %w", err)
 	}

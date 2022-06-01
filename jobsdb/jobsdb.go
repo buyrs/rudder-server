@@ -182,31 +182,31 @@ type JobsDB interface {
 	// WithTx begins a new transaction that can be used by the provided function.
 	// If the function returns an error, the transaction will rollback and return the error,
 	// otherwise the transaction will be commited and a nil error will be returned.
-	WithTx(func(tx *sql.Tx) error) error
+	WithTx(context.Context, func(tx *sql.Tx) error) error
 
 	// WithStoreSafeTx prepares a store-safe environment and then starts a transaction
 	// that can be used by the provided function.
 	WithStoreSafeTx(func(tx StoreSafeTx) error) error
 
 	// Store stores the provided jobs to the database
-	Store(jobList []*JobT) error
+	Store(ctx context.Context, jobList []*JobT) error
 
 	// StoreInTx stores the provided jobs to the database using an existing transaction.
 	// Please ensure that you are using an StoreSafeTx, e.g.
 	//    jobsdb.WithStoreSafeTx(func(tx StoreSafeTx) error {
 	//	      jobsdb.StoreInTx(tx, jobList)
 	//    })
-	StoreInTx(tx StoreSafeTx, jobList []*JobT) error
+	StoreInTx(ctx context.Context, tx StoreSafeTx, jobList []*JobT) error
 
 	// StoreWithRetryEach tries to store all the provided jobs to the database and returns the job uuids which failed
-	StoreWithRetryEach(jobList []*JobT) map[uuid.UUID]string
+	StoreWithRetryEach(ctx context.Context, jobList []*JobT) map[uuid.UUID]string
 
 	// StoreWithRetryEachInTx tries to store all the provided jobs to the database and returns the job uuids which failed, using an existing transaction.
 	// Please ensure that you are using an StoreSafeTx, e.g.
 	//    jobsdb.WithStoreSafeTx(func(tx StoreSafeTx) error {
 	//	      jobsdb.StoreWithRetryEachInTx(tx, jobList)
 	//    })
-	StoreWithRetryEachInTx(tx StoreSafeTx, jobList []*JobT) map[uuid.UUID]string
+	StoreWithRetryEachInTx(ctx context.Context, tx StoreSafeTx, jobList []*JobT) map[uuid.UUID]string
 
 	// WithUpdateSafeTx prepares an update-safe environment and then starts a transaction
 	// that can be used by the provided function. An update-safe transaction shall be used if the provided function
@@ -214,14 +214,14 @@ type JobsDB interface {
 	WithUpdateSafeTx(func(tx UpdateSafeTx) error) error
 
 	// UpdateJobStatus updates the provided job statuses
-	UpdateJobStatus(statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error
+	UpdateJobStatus(ctx context.Context, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error
 
 	// UpdateJobStatusInTx updates the provided job statuses in an existing transaction.
 	// Please ensure that you are using an UpdateSafeTx, e.g.
 	//    jobsdb.WithUpdateSafeTx(func(tx UpdateSafeTx) error {
 	//	      jobsdb.UpdateJobStatusInTx(tx, statusList, customValFilters, parameterFilters)
 	//    })
-	UpdateJobStatusInTx(txHandler UpdateSafeTx, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error
+	UpdateJobStatusInTx(ctx context.Context, txHandler UpdateSafeTx, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error
 
 	/* Queries */
 
@@ -282,7 +282,7 @@ customValFilters[] is passed so we can efficinetly mark empty cache
 Later we can move this to query
 IMP NOTE: AcquireUpdateJobStatusLocks Should be called before calling this function
 */
-func (jd *HandleT) UpdateJobStatusInTx(tx UpdateSafeTx, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error {
+func (jd *HandleT) UpdateJobStatusInTx(ctx context.Context, tx UpdateSafeTx, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error {
 
 	updateCmd := func() error {
 		if len(statusList) == 0 {
@@ -290,7 +290,7 @@ func (jd *HandleT) UpdateJobStatusInTx(tx UpdateSafeTx, statusList []*JobStatusT
 		}
 		tags := statTags{CustomValFilters: customValFilters, ParameterFilters: parameterFilters}
 		command := func() interface{} {
-			return jd.internalUpdateJobStatusInTx(tx.Tx(), statusList, customValFilters, parameterFilters)
+			return jd.internalUpdateJobStatusInTx(context.TODO(), tx.Tx(), statusList, customValFilters, parameterFilters)
 		}
 		err, _ := jd.executeDbRequest(newWriteDbRequest("update_job_status", &tags, command)).(error)
 		return err
@@ -1475,7 +1475,7 @@ func (jd *HandleT) computeNewIdxForIntraNodeMigration(l lock.DSListLockToken, in
 }
 
 type transactionHandler interface {
-	Exec(string, ...interface{}) (sql.Result, error)
+	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
 	Prepare(query string) (*sql.Stmt, error)
 	//If required, add other definitions that are common between *sql.DB and *sql.Tx
 	//Never include Commit and Rollback in this interface
@@ -1625,7 +1625,7 @@ func (jd *HandleT) mustDropDS(ds dataSetT) {
 
 // dropDS drops a dataset
 func (jd *HandleT) dropDS(ds dataSetT) error {
-	return jd.WithTx(func(tx *sql.Tx) error {
+	return jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
 		var err error
 		if _, err = tx.Exec(fmt.Sprintf(`LOCK TABLE "%s" IN ACCESS EXCLUSIVE MODE;`, ds.JobStatusTable)); err != nil {
 			return err
@@ -1698,7 +1698,7 @@ func (jd *HandleT) mustRenameDS(ds dataSetT) error {
 	var sqlStatement string
 	var renamedJobStatusTable = fmt.Sprintf(`%s%s`, preDropTablePrefix, ds.JobStatusTable)
 	var renamedJobTable = fmt.Sprintf(`%s%s`, preDropTablePrefix, ds.JobTable)
-	return jd.WithTx(func(tx *sql.Tx) error {
+	return jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
 		sqlStatement = fmt.Sprintf(`ALTER TABLE "%s" RENAME TO "%s"`, ds.JobStatusTable, renamedJobStatusTable)
 		_, err := tx.Exec(sqlStatement)
 		if err != nil {
@@ -1739,7 +1739,7 @@ func (jd *HandleT) renameDS(ds dataSetT) error {
 	var sqlStatement string
 	var renamedJobStatusTable = fmt.Sprintf(`%s%s`, preDropTablePrefix, ds.JobStatusTable)
 	var renamedJobTable = fmt.Sprintf(`%s%s`, preDropTablePrefix, ds.JobTable)
-	return jd.WithTx(func(tx *sql.Tx) error {
+	return jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
 		sqlStatement = fmt.Sprintf(`ALTER TABLE IF EXISTS "%s" RENAME TO "%s"`, ds.JobStatusTable, renamedJobStatusTable)
 		_, err := jd.dbHandle.Exec(sqlStatement)
 		if err != nil {
@@ -1860,7 +1860,7 @@ func (jd *HandleT) migrateJobs(srcDS dataSetT, destDS dataSetT) (noJobsMigrated 
 	jobsToMigrate := append(unprocessedList.Jobs, retryList.Jobs...)
 	noJobsMigrated = len(jobsToMigrate)
 
-	err = jd.WithTx(func(tx *sql.Tx) error {
+	err = jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
 		if err := jd.copyJobsDS(tx, destDS, jobsToMigrate); err != nil {
 			return err
 		}
@@ -1909,7 +1909,7 @@ func (jd *HandleT) postMigrateHandleDS(l lock.DSListLockToken, migrateFrom []dat
 	return nil
 }
 
-func (jd *HandleT) internalStoreJobsInTx(tx *sql.Tx, ds dataSetT, jobList []*JobT) error {
+func (jd *HandleT) internalStoreJobsInTx(ctx context.Context, tx *sql.Tx, ds dataSetT, jobList []*JobT) error {
 	queryStat := jd.getTimerStat("store_jobs", nil)
 	queryStat.Start()
 	defer queryStat.End()
@@ -1918,7 +1918,7 @@ func (jd *HandleT) internalStoreJobsInTx(tx *sql.Tx, ds dataSetT, jobList []*Job
 	// since we are not sure about the state of the db
 	defer jd.clearCache(ds, jobList)
 
-	return jd.doStoreJobsInTx(tx, ds, jobList)
+	return jd.doStoreJobsInTx(context.TODO(), tx, ds, jobList)
 }
 
 /*
@@ -1938,7 +1938,7 @@ func (jd *HandleT) copyJobsDS(tx *sql.Tx, ds dataSetT, jobList []*JobT) error { 
 
 func (jd *HandleT) WithStoreSafeTx(f func(tx StoreSafeTx) error) error {
 	return jd.inStoreSafeCtx(func() error {
-		return jd.WithTx(func(tx *sql.Tx) error { return f(&storeSafeTx{tx: tx, identity: jd.tablePrefix}) })
+		return jd.WithTx(context.TODO(), func(tx *sql.Tx) error { return f(&storeSafeTx{tx: tx, identity: jd.tablePrefix}) })
 	})
 }
 
@@ -1951,7 +1951,7 @@ func (jd *HandleT) inStoreSafeCtx(f func() error) error {
 
 func (jd *HandleT) WithUpdateSafeTx(f func(tx UpdateSafeTx) error) error {
 	return jd.inUpdateSafeCtx(func() error {
-		return jd.WithTx(func(tx *sql.Tx) error { return f(&updateSafeTx{tx: tx, identity: jd.tablePrefix}) })
+		return jd.WithTx(context.TODO(), func(tx *sql.Tx) error { return f(&updateSafeTx{tx: tx, identity: jd.tablePrefix}) })
 	})
 }
 
@@ -1966,8 +1966,8 @@ func (jd *HandleT) inUpdateSafeCtx(f func() error) error {
 	return f()
 }
 
-func (jd *HandleT) WithTx(f func(tx *sql.Tx) error) error {
-	tx, err := jd.dbHandle.Begin()
+func (jd *HandleT) WithTx(ctx context.Context, f func(tx *sql.Tx) error) error {
+	tx, err := jd.dbHandle.BeginTx(context.TODO(), nil)
 	if err != nil {
 		return err
 	}
@@ -2002,7 +2002,7 @@ func (jd *HandleT) clearCache(ds dataSetT, jobList []*JobT) {
 	}
 }
 
-func (jd *HandleT) internalStoreWithRetryEachInTx(tx *sql.Tx, ds dataSetT, jobList []*JobT) (errorMessagesMap map[uuid.UUID]string) {
+func (jd *HandleT) internalStoreWithRetryEachInTx(ctx context.Context, tx *sql.Tx, ds dataSetT, jobList []*JobT) (errorMessagesMap map[uuid.UUID]string) {
 	const (
 		savepointSql = "SAVEPOINT storeWithRetryEach"
 		rollbackSql  = "ROLLBACK TO " + savepointSql
@@ -2020,15 +2020,15 @@ func (jd *HandleT) internalStoreWithRetryEachInTx(tx *sql.Tx, ds dataSetT, jobLi
 	queryStat.Start()
 	defer queryStat.End()
 
-	_, err := tx.Exec(savepointSql)
+	_, err := tx.ExecContext(context.TODO(), savepointSql)
 	if err != nil {
 		return failAll(err)
 	}
-	err = jd.internalStoreJobsInTx(tx, ds, jobList)
+	err = jd.internalStoreJobsInTx(context.TODO(), tx, ds, jobList)
 	if err == nil {
 		return
 	}
-	_, err = tx.Exec(rollbackSql)
+	_, err = tx.ExecContext(context.TODO(), rollbackSql)
 	if err != nil {
 		return failAll(err)
 	}
@@ -2044,19 +2044,19 @@ func (jd *HandleT) internalStoreWithRetryEachInTx(tx *sql.Tx, ds dataSetT, jobLi
 		}
 
 		// savepoint
-		_, txErr = tx.Exec(savepointSql)
+		_, txErr = tx.ExecContext(context.TODO(), savepointSql)
 		if txErr != nil {
 			errorMessagesMap[job.UUID] = txErr.Error()
 			continue
 		}
 
 		// try to store
-		err := jd.storeJob(tx, ds, job)
+		err := jd.storeJob(context.TODO(), tx, ds, job)
 
 		if err != nil {
 			errorMessagesMap[job.UUID] = err.Error()
 			// rollback to savepoint
-			_, txErr = tx.Exec(rollbackSql)
+			_, txErr = tx.ExecContext(context.TODO(), rollbackSql)
 		}
 
 	}
@@ -2225,11 +2225,11 @@ func (*HandleT) copyJobsDSInTx(txHandler transactionHandler, ds dataSetT, jobLis
 	// amount of rows are being copied in the table in a very short time and
 	// AUTOVACUUM might not have a chance to do its work before we start querying
 	// this table
-	_, err = txHandler.Exec(fmt.Sprintf("ANALYZE %s", ds.JobTable))
+	_, err = txHandler.ExecContext(context.TODO(), fmt.Sprintf("ANALYZE %s", ds.JobTable))
 	return err
 }
 
-func (*HandleT) doStoreJobsInTx(txHandler transactionHandler, ds dataSetT, jobList []*JobT) error {
+func (*HandleT) doStoreJobsInTx(ctx context.Context, txHandler transactionHandler, ds dataSetT, jobList []*JobT) error {
 	store := func() error {
 		var stmt *sql.Stmt
 		var err error
@@ -2246,25 +2246,25 @@ func (*HandleT) doStoreJobsInTx(txHandler transactionHandler, ds dataSetT, jobLi
 				eventCount = job.EventCount
 			}
 
-			if _, err = stmt.Exec(job.UUID, job.UserID, job.CustomVal, string(job.Parameters), string(job.EventPayload), eventCount, job.WorkspaceId); err != nil {
+			if _, err = stmt.ExecContext(context.TODO(), job.UUID, job.UserID, job.CustomVal, string(job.Parameters), string(job.EventPayload), eventCount, job.WorkspaceId); err != nil {
 				return err
 			}
 		}
-		_, err = stmt.Exec()
+		_, err = stmt.ExecContext(context.TODO())
 		return err
 	}
 	const (
 		savepointSql = "SAVEPOINT doStoreJobsInTx"
 		rollbackSql  = "ROLLBACK TO " + savepointSql
 	)
-	if _, err := txHandler.Exec(savepointSql); err != nil {
+	if _, err := txHandler.ExecContext(context.TODO(), savepointSql); err != nil {
 		return err
 	}
 	err := store()
 	var e *pq.Error
 	if err != nil && errors.As(err, &e) {
 		if _, ok := dbInvalidJsonErrors[string(e.Code)]; ok {
-			if _, err := txHandler.Exec(rollbackSql); err != nil {
+			if _, err := txHandler.ExecContext(context.TODO(), rollbackSql); err != nil {
 				return err
 			}
 			for i := range jobList {
@@ -2276,14 +2276,14 @@ func (*HandleT) doStoreJobsInTx(txHandler transactionHandler, ds dataSetT, jobLi
 	return err
 }
 
-func (jd *HandleT) storeJob(tx *sql.Tx, ds dataSetT, job *JobT) (err error) {
+func (jd *HandleT) storeJob(ctx context.Context, tx *sql.Tx, ds dataSetT, job *JobT) (err error) {
 	sqlStatement := fmt.Sprintf(`INSERT INTO "%s" (uuid, user_id, custom_val, parameters, event_payload, workspace_id)
 	                                   VALUES ($1, $2, $3, $4, $5, $6) RETURNING job_id`, ds.JobTable)
 	stmt, err := tx.Prepare(sqlStatement)
 	jd.assertError(err)
 	defer stmt.Close()
 	job.sanitizeJson()
-	_, err = stmt.Exec(job.UUID, job.UserID, job.CustomVal, string(job.Parameters), string(job.EventPayload), job.WorkspaceId)
+	_, err = stmt.ExecContext(context.TODO(), job.UUID, job.UserID, job.CustomVal, string(job.Parameters), string(job.EventPayload), job.WorkspaceId)
 	if err == nil {
 		//Empty customValFilters means we want to clear for all
 		jd.markClearEmptyResult(ds, allWorkspaces, []string{}, []string{}, nil, hasJobs, nil)
@@ -2806,7 +2806,7 @@ func (jd *HandleT) copyJobStatusDS(tx *sql.Tx, ds dataSetT, statusList []*JobSta
 
 	var stateFiltersByWorkspace map[string][]string
 	tags := statTags{CustomValFilters: customValFilters, ParameterFilters: parameterFilters}
-	stateFiltersByWorkspace, err = jd.updateJobStatusDSInTx(tx, ds, statusList, tags)
+	stateFiltersByWorkspace, err = jd.updateJobStatusDSInTx(context.TODO(), tx, ds, statusList, tags)
 	if err != nil {
 		return err
 	}
@@ -2829,7 +2829,7 @@ func (jd *HandleT) copyJobStatusDS(tx *sql.Tx, ds dataSetT, statusList []*JobSta
 	return nil
 }
 
-func (jd *HandleT) updateJobStatusDSInTx(txHandler transactionHandler, ds dataSetT, statusList []*JobStatusT, tags statTags) (updatedStates map[string][]string, err error) {
+func (jd *HandleT) updateJobStatusDSInTx(ctx context.Context, txHandler transactionHandler, ds dataSetT, statusList []*JobStatusT, tags statTags) (updatedStates map[string][]string, err error) {
 	if len(statusList) == 0 {
 		return
 	}
@@ -2853,7 +2853,7 @@ func (jd *HandleT) updateJobStatusDSInTx(txHandler transactionHandler, ds dataSe
 			if !utf8.ValidString(string(status.ErrorResponse)) {
 				status.ErrorResponse = []byte(`{}`)
 			}
-			_, err = stmt.Exec(status.JobID, status.JobState, status.AttemptNum, status.ExecTime,
+			_, err = stmt.ExecContext(context.TODO(), status.JobID, status.JobState, status.AttemptNum, status.ExecTime,
 				status.RetryTime, status.ErrorCode, string(status.ErrorResponse), string(status.Parameters))
 			if err != nil {
 				return err
@@ -2869,21 +2869,21 @@ func (jd *HandleT) updateJobStatusDSInTx(txHandler transactionHandler, ds dataSe
 			}
 		}
 
-		_, err = stmt.Exec()
+		_, err = stmt.ExecContext(context.TODO())
 		return err
 	}
 	const (
 		savepointSql = "SAVEPOINT updateJobStatusDSInTx"
 		rollbackSql  = "ROLLBACK TO " + savepointSql
 	)
-	if _, err = txHandler.Exec(savepointSql); err != nil {
+	if _, err = txHandler.ExecContext(context.TODO(), savepointSql); err != nil {
 		return
 	}
 	err = store()
 	var e *pq.Error
 	if err != nil && errors.As(err, &e) {
 		if _, ok := dbInvalidJsonErrors[string(e.Code)]; ok {
-			if _, err = txHandler.Exec(rollbackSql); err != nil {
+			if _, err = txHandler.ExecContext(context.TODO(), rollbackSql); err != nil {
 				return
 			}
 			for i := range statusList {
@@ -3064,7 +3064,7 @@ func (jd *HandleT) migrateDSLoop(ctx context.Context) {
 
 			}
 
-			err := jd.WithTx(func(tx *sql.Tx) error {
+			err := jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
 				if opID > 0 {
 					// marking the previous operation as done and
 					// starting the next operation must be performed
@@ -3473,7 +3473,7 @@ func (jd *HandleT) dropJournal() {
 
 func (jd *HandleT) JournalMarkStart(opType string, opPayload json.RawMessage) int64 {
 	var opID int64
-	err := jd.WithTx(func(tx *sql.Tx) error {
+	err := jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
 		var err error
 		opID, err = jd.JournalMarkStartInTx(tx, opType, opPayload)
 		return err
@@ -3502,7 +3502,7 @@ func (jd *HandleT) JournalMarkStartInTx(tx *sql.Tx, opType string, opPayload jso
 
 //JournalMarkDone marks the end of a journal action
 func (jd *HandleT) JournalMarkDone(opID int64) {
-	err := jd.WithTx(func(tx *sql.Tx) error {
+	err := jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
 		return jd.journalMarkDoneInTx(tx, opID)
 	})
 	jd.assertError(err)
@@ -3683,9 +3683,9 @@ func (jd *HandleT) RecoverFromMigrationJournal() {
 	jd.recoverFromCrash(ReadWrite, migratorRoutine)
 }
 
-func (jd *HandleT) UpdateJobStatus(statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error {
+func (jd *HandleT) UpdateJobStatus(ctx context.Context, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error {
 	return jd.WithUpdateSafeTx(func(tx UpdateSafeTx) error {
-		return jd.UpdateJobStatusInTx(tx, statusList, customValFilters, parameterFilters)
+		return jd.UpdateJobStatusInTx(context.TODO(), tx, statusList, customValFilters, parameterFilters)
 	})
 }
 
@@ -3694,7 +3694,7 @@ internalUpdateJobStatusInTx updates the status of a batch of jobs
 customValFilters[] is passed so we can efficinetly mark empty cache
 Later we can move this to query
 */
-func (jd *HandleT) internalUpdateJobStatusInTx(tx *sql.Tx, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error {
+func (jd *HandleT) internalUpdateJobStatusInTx(ctx context.Context, tx *sql.Tx, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error {
 	// capture stats
 	tags := statTags{CustomValFilters: customValFilters, ParameterFilters: parameterFilters}
 	queryStat := jd.getTimerStat("update_job_status_time", &tags)
@@ -3702,7 +3702,7 @@ func (jd *HandleT) internalUpdateJobStatusInTx(tx *sql.Tx, statusList []*JobStat
 	defer queryStat.End()
 
 	// do update
-	updatedStatesByDS, err := jd.doUpdateJobStatusInTx(tx, statusList, tags)
+	updatedStatesByDS, err := jd.doUpdateJobStatusInTx(context.TODO(), tx, statusList, tags)
 	if err != nil {
 		jd.logger.Infof("[[ %s ]]: Error occured while updating job statuses. Returning err, %v", jd.tablePrefix, err)
 		return err
@@ -3727,7 +3727,7 @@ doUpdateJobStatusInTx updates the status of a batch of jobs
 customValFilters[] is passed so we can efficinetly mark empty cache
 Later we can move this to query
 */
-func (jd *HandleT) doUpdateJobStatusInTx(txHandler transactionHandler, statusList []*JobStatusT, tags statTags) (updatedStatesByDS map[dataSetT]map[string][]string, err error) {
+func (jd *HandleT) doUpdateJobStatusInTx(ctx context.Context, txHandler transactionHandler, statusList []*JobStatusT, tags statTags) (updatedStatesByDS map[dataSetT]map[string][]string, err error) {
 	if len(statusList) == 0 {
 		return
 	}
@@ -3757,7 +3757,7 @@ func (jd *HandleT) doUpdateJobStatusInTx(txHandler transactionHandler, statusLis
 						statusList[i-1].JobID, lastPos, i-1)
 				}
 				var updatedStates map[string][]string
-				updatedStates, err = jd.updateJobStatusDSInTx(txHandler, ds.ds, statusList[lastPos:i], tags)
+				updatedStates, err = jd.updateJobStatusDSInTx(context.TODO(), txHandler, ds.ds, statusList[lastPos:i], tags)
 				if err != nil {
 					return
 				}
@@ -3773,7 +3773,7 @@ func (jd *HandleT) doUpdateJobStatusInTx(txHandler transactionHandler, statusLis
 		if i == len(statusList) && lastPos < i {
 			jd.logger.Debug("Range:", ds, statusList[lastPos].JobID, statusList[i-1].JobID, lastPos, i)
 			var updatedStates map[string][]string
-			updatedStates, err = jd.updateJobStatusDSInTx(txHandler, ds.ds, statusList[lastPos:i], tags)
+			updatedStates, err = jd.updateJobStatusDSInTx(context.TODO(), txHandler, ds.ds, statusList[lastPos:i], tags)
 			if err != nil {
 				return
 			}
@@ -3794,7 +3794,7 @@ func (jd *HandleT) doUpdateJobStatusInTx(txHandler transactionHandler, statusLis
 		//Update status in the last element
 		jd.logger.Debug("RangeEnd", statusList[lastPos].JobID, lastPos, len(statusList))
 		var updatedStates map[string][]string
-		updatedStates, err = jd.updateJobStatusDSInTx(txHandler, dsList[len(dsList)-1], statusList[lastPos:], tags)
+		updatedStates, err = jd.updateJobStatusDSInTx(context.TODO(), txHandler, dsList[len(dsList)-1], statusList[lastPos:], tags)
 		if err != nil {
 			return
 		}
@@ -3808,20 +3808,20 @@ func (jd *HandleT) doUpdateJobStatusInTx(txHandler transactionHandler, statusLis
 
 // Store stores new jobs to the jobsdb.
 // If enableWriterQueue is true, this goes through writer worker pool.
-func (jd *HandleT) Store(jobList []*JobT) error {
+func (jd *HandleT) Store(ctx context.Context, jobList []*JobT) error {
 	return jd.WithStoreSafeTx(func(tx StoreSafeTx) error {
-		return jd.StoreInTx(tx, jobList)
+		return jd.StoreInTx(context.TODO(), tx, jobList)
 	})
 
 }
 
 // StoreInTx stores new jobs to the jobsdb.
 // If enableWriterQueue is true, this goes through writer worker pool.
-func (jd *HandleT) StoreInTx(tx StoreSafeTx, jobList []*JobT) error {
+func (jd *HandleT) StoreInTx(ctx context.Context, tx StoreSafeTx, jobList []*JobT) error {
 	storeCmd := func() error {
 		command := func() interface{} {
 			dsList := jd.getDSList()
-			err := jd.internalStoreJobsInTx(tx.Tx(), dsList[len(dsList)-1], jobList)
+			err := jd.internalStoreJobsInTx(context.TODO(), tx.Tx(), dsList[len(dsList)-1], jobList)
 			return err
 		}
 		err, _ := jd.executeDbRequest(newWriteDbRequest("store", nil, command)).(error)
@@ -3835,22 +3835,22 @@ func (jd *HandleT) StoreInTx(tx StoreSafeTx, jobList []*JobT) error {
 
 }
 
-func (jd *HandleT) StoreWithRetryEach(jobList []*JobT) map[uuid.UUID]string {
+func (jd *HandleT) StoreWithRetryEach(ctx context.Context, jobList []*JobT) map[uuid.UUID]string {
 	var res map[uuid.UUID]string
 	_ = jd.WithStoreSafeTx(func(tx StoreSafeTx) error {
-		res = jd.StoreWithRetryEachInTx(tx, jobList)
+		res = jd.StoreWithRetryEachInTx(context.TODO(), tx, jobList)
 		return nil
 	})
 	return res
 }
 
-func (jd *HandleT) StoreWithRetryEachInTx(tx StoreSafeTx, jobList []*JobT) map[uuid.UUID]string {
+func (jd *HandleT) StoreWithRetryEachInTx(ctx context.Context, tx StoreSafeTx, jobList []*JobT) map[uuid.UUID]string {
 	var res map[uuid.UUID]string
 
 	storeCmd := func() error {
 		command := func() interface{} {
 			dsList := jd.getDSList()
-			return jd.internalStoreWithRetryEachInTx(tx.Tx(), dsList[len(dsList)-1], jobList)
+			return jd.internalStoreWithRetryEachInTx(context.TODO(), tx.Tx(), dsList[len(dsList)-1], jobList)
 		}
 		res, _ = jd.executeDbRequest(newWriteDbRequest("store_retry_each", nil, command)).(map[uuid.UUID]string)
 		return nil

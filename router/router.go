@@ -1623,7 +1623,7 @@ func (rt *HandleT) commitStatusList(responseList *[]jobResponseT) {
 		})
 		//Store the aborted jobs to errorDB
 		if routerAbortedJobs != nil {
-			rt.errorDB.Store(routerAbortedJobs)
+			rt.errorDB.Store(context.TODO(), routerAbortedJobs)
 		}
 		//Update the status
 		err := rt.jobsDB.WithUpdateSafeTx(func(tx jobsdb.UpdateSafeTx) error {
@@ -2023,7 +2023,7 @@ func (rt *HandleT) readAndProcess() int {
 	}
 	//Mark the jobs as aborted
 	if len(drainList) > 0 {
-		err = rt.errorDB.Store(drainJobList)
+		err = rt.errorDB.Store(context.TODO(), drainJobList)
 		if err != nil {
 			pkgLogger.Errorf("Error occurred while storing %s jobs into ErrorDB. Panicking. Err: %v", rt.destName, err)
 			panic(err)

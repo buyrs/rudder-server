@@ -194,7 +194,7 @@ func TestJobsDB(t *testing.T) {
 	})
 	unprocessedListEmpty := unprocessedJobEmpty.Jobs
 	require.Equal(t, 0, len(unprocessedListEmpty))
-	err := jobDB.Store([]*jobsdb.JobT{&sampleTestJob})
+	err := jobDB.Store(context.TODO(), []*jobsdb.JobT{&sampleTestJob})
 	require.NoError(t, err)
 
 	unprocessedJob := jobDB.GetUnprocessed(jobsdb.GetQueryParamsT{
@@ -237,7 +237,7 @@ func TestJobsDB(t *testing.T) {
 
 		t.Logf("spread %d jobs into %d data sets", jobCount, dsCount)
 		for i := 0; i < dsCount; i++ {
-			require.NoError(t, jobDB.Store(genJobs(defaultWorkspaceID, customVal, jobCountPerDS, eventsPerJob)))
+			require.NoError(t, jobDB.Store(context.TODO(), genJobs(defaultWorkspaceID, customVal, jobCountPerDS, eventsPerJob)))
 			triggerAddNewDS <- time.Now()
 			triggerAddNewDS <- time.Now() //Second time, waits for the first loop to finish
 		}
@@ -336,11 +336,11 @@ func TestJobsDB(t *testing.T) {
 		eventsPerJob_ds2 := 20
 
 		t.Log("First jobs table with jobs of 60 events, second with jobs of 20 events")
-		require.NoError(t, jobDB.Store(genJobs(defaultWorkspaceID, customVal, jobCountPerDS, eventsPerJob_ds1)))
+		require.NoError(t, jobDB.Store(context.TODO(), genJobs(defaultWorkspaceID, customVal, jobCountPerDS, eventsPerJob_ds1)))
 		triggerAddNewDS <- time.Now()
 		triggerAddNewDS <- time.Now() //Second time, waits for the first loop to finish
 
-		require.NoError(t, jobDB.Store(genJobs(defaultWorkspaceID, customVal, jobCountPerDS, eventsPerJob_ds2)))
+		require.NoError(t, jobDB.Store(context.TODO(), genJobs(defaultWorkspaceID, customVal, jobCountPerDS, eventsPerJob_ds2)))
 		triggerAddNewDS <- time.Now()
 		triggerAddNewDS <- time.Now() //Second time, waits for the first loop to finish
 
@@ -415,13 +415,13 @@ func TestJobsDB(t *testing.T) {
 		defer jobDB.TearDown()
 
 		jobs := genJobs(defaultWorkspaceID, customVal, 2, 1)
-		require.NoError(t, jobDB.Store(jobs))
+		require.NoError(t, jobDB.Store(context.TODO(), jobs))
 		payloadSize, err := getPayloadSize(t, &jobDB, jobs[0])
 		require.NoError(t, err)
 		triggerAddNewDS <- time.Now()
 		triggerAddNewDS <- time.Now() //Second time, waits for the first loop to finish
 
-		require.NoError(t, jobDB.Store(genJobs(defaultWorkspaceID, customVal, 2, 1)))
+		require.NoError(t, jobDB.Store(context.TODO(), genJobs(defaultWorkspaceID, customVal, 2, 1)))
 		triggerAddNewDS <- time.Now()
 		triggerAddNewDS <- time.Now() //Second time, waits for the first loop to finish
 
@@ -778,7 +778,7 @@ func TestJobsDB_IncompatiblePayload(t *testing.T) {
 		WorkspaceId:  defaultWorkspaceID,
 		EventCount:   1,
 	}
-	err := jobDB.StoreWithRetryEach([]*jobsdb.JobT{&sampleTestJob})
+	err := jobDB.StoreWithRetryEach(context.TODO(), []*jobsdb.JobT{&sampleTestJob})
 	for _, val := range err {
 		require.Equal(t, "", val)
 	}
@@ -876,7 +876,7 @@ func benchmarkJobsdbConcurrently(b *testing.B, jobsDB *jobsdb.HandleT, totalJobs
 				chunks := chunkJobs(expectedJobs, pageSize)
 				start.Wait()
 				for i := range chunks {
-					err := jobsDB.Store(chunks[i])
+					err := jobsDB.Store(context.TODO(), chunks[i])
 					if err != nil {
 						return err
 					}
@@ -989,7 +989,7 @@ func BenchmarkLifecycle(b *testing.B) {
 			wg.Add(writeConcurrency)
 			for j := 0; j < writeConcurrency; j++ {
 				go func() {
-					jobDB.Store(genJobs(defaultWorkspaceID, "", newJobs, 10))
+					jobDB.Store(context.TODO(), genJobs(defaultWorkspaceID, "", newJobs, 10))
 					wg.Done()
 				}()
 			}
