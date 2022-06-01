@@ -1627,7 +1627,7 @@ func (rt *HandleT) commitStatusList(responseList *[]jobResponseT) {
 		}
 		//Update the status
 		err := rt.jobsDB.WithUpdateSafeTx(func(tx jobsdb.UpdateSafeTx) error {
-			err := rt.jobsDB.UpdateJobStatusInTx(tx, statusList, []string{rt.destName}, nil)
+			err := rt.jobsDB.UpdateJobStatusInTx(context.TODO(), tx, statusList, []string{rt.destName}, nil)
 			if err != nil {
 				rt.logger.Errorf("[Router] :: Error occurred while updating %s jobs statuses. Panicking. Err: %v", rt.destName, err)
 				return err
@@ -2016,7 +2016,7 @@ func (rt *HandleT) readAndProcess() int {
 	rt.throttledUserMap = nil
 
 	//Mark the jobs as executing
-	err := rt.jobsDB.UpdateJobStatus(statusList, []string{rt.destName}, nil)
+	err := rt.jobsDB.UpdateJobStatus(context.TODO(), statusList, []string{rt.destName}, nil)
 	if err != nil {
 		pkgLogger.Errorf("Error occurred while marking %s jobs statuses as executing. Panicking. Err: %v", rt.destName, err)
 		panic(err)
@@ -2028,7 +2028,7 @@ func (rt *HandleT) readAndProcess() int {
 			pkgLogger.Errorf("Error occurred while storing %s jobs into ErrorDB. Panicking. Err: %v", rt.destName, err)
 			panic(err)
 		}
-		err = rt.jobsDB.UpdateJobStatus(drainList, []string{rt.destName}, nil)
+		err = rt.jobsDB.UpdateJobStatus(context.TODO(), drainList, []string{rt.destName}, nil)
 		if err != nil {
 			pkgLogger.Errorf("Error occurred while marking %s jobs statuses as aborted. Panicking. Err: %v", rt.destName, err)
 			panic(err)
