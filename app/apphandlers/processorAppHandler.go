@@ -250,11 +250,11 @@ func (processor *ProcessorApp) StartRudderCore(ctx context.Context, options *app
 		var replayDB jobsdb.HandleT
 		replayDB.Setup(jobsdb.ReadWrite, options.ClearDB, "replay", routerDBRetention, migrationMode, true, jobsdb.QueryFiltersT{}, prebackupHandlers)
 		defer replayDB.TearDown()
-		processor.App.Features().Replay.Setup(context.TODO(), &replayDB, gwDBForProcessor, routerDB, batchRouterDB)
+		processor.App.Features().Replay.Setup(&replayDB, gwDBForProcessor, routerDB, batchRouterDB)
 	}
 
 	g.Go(func() error {
-		return startHealthWebHandler(ctx)
+		return startHealthWebHandler(Setup(replayDB, gwDB, routerDB, batchRouterDB *jobsdb.HandleT)ctx)
 	})
 
 	g.Go(func() error {
