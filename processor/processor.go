@@ -1652,36 +1652,38 @@ func (proc *HandleT) Store(in storeMessage) {
 	writeJobsTime := time.Since(beforeStoreStatus)
 
 	txnStart := time.Now()
-	err := proc.gatewayDB.WithUpdateSafeTx(func(tx jobsdb.UpdateSafeTx) error {
-		err := proc.gatewayDB.UpdateJobStatusInTx(tx, statusList, []string{GWCustomVal}, nil)
-		if err != nil {
-			pkgLogger.Errorf("Error occurred while updating gateway jobs statuses. Panicking. Err: %v", err)
-			return err
-		}
-
-		// rsources stats
-		in.rsourcesStats.JobStatusesUpdated(statusList)
-		err = in.rsourcesStats.Publish(context.TODO(), tx.Tx())
-		if err != nil {
-			pkgLogger.Errorf("Error occurred while publishing rsources stats. Err: %v", err)
-			return err
-		}
-
-		if proc.isReportingEnabled() {
-			proc.reporting.Report(in.reportMetrics, tx.Tx())
-		}
-
-		if enableDedup {
-			proc.updateSourceStats(in.sourceDupStats, "processor.write_key_duplicate_events")
-			if len(in.uniqueMessageIds) > 0 {
-				var dedupedMessageIdsAcrossJobs []string
-				for k := range in.uniqueMessageIds {
-					dedupedMessageIdsAcrossJobs = append(dedupedMessageIdsAcrossJobs, k)
-				}
-				proc.dedupHandler.MarkProcessed(dedupedMessageIdsAcrossJobs)
+	err := misc.RetryWith(context.Background(), 5*time.Minute, 2, func(ctx context.Context) error {
+		return proc.gatewayDB.WithUpdateSafeTx(func(tx jobsdb.UpdateSafeTx) error {
+			err := proc.gatewayDB.UpdateJobStatusInTx(tx, statusList, []string{GWCustomVal}, nil)
+			if err != nil {
+				pkgLogger.Errorf("Error occurred while updating gateway jobs statuses. Panicking. Err: %v", err)
+				return err
 			}
-		}
-		return nil
+
+			// rsources stats
+			in.rsourcesStats.JobStatusesUpdated(statusList)
+			err = in.rsourcesStats.Publish(context.TODO(), tx.Tx())
+			if err != nil {
+				pkgLogger.Errorf("Error occurred while publishing rsources stats. Err: %v", err)
+				return err
+			}
+
+			if proc.isReportingEnabled() {
+				proc.reporting.Report(in.reportMetrics, tx.Tx())
+			}
+
+			if enableDedup {
+				proc.updateSourceStats(in.sourceDupStats, "processor.write_key_duplicate_events")
+				if len(in.uniqueMessageIds) > 0 {
+					var dedupedMessageIdsAcrossJobs []string
+					for k := range in.uniqueMessageIds {
+						dedupedMessageIdsAcrossJobs = append(dedupedMessageIdsAcrossJobs, k)
+					}
+					proc.dedupHandler.MarkProcessed(dedupedMessageIdsAcrossJobs)
+				}
+			}
+			return nil
+		})
 	})
 	if err != nil {
 		panic(err)
