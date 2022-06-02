@@ -254,7 +254,7 @@ func (processor *ProcessorApp) StartRudderCore(ctx context.Context, options *app
 	}
 
 	g.Go(func() error {
-		return startHealthWebHandler(Setup(replayDB, gwDB, routerDB, batchRouterDB *jobsdb.HandleT)ctx)
+		return startHealthWebHandler(ctx)
 	})
 
 	g.Go(func() error {

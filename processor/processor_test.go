@@ -491,7 +491,7 @@ var _ = Describe("Processor", func() {
 			}
 			// One Store call is expected for all events
 			callStoreRouter := c.mockRouterJobsDB.EXPECT().Store(context.Background(), gomock.Any()).Times(1).
-				Do(func(jobs []*jobsdb.JobT) {
+				Do(func(ctx context.Context, jobs []*jobsdb.JobT) {
 					Expect(jobs).To(HaveLen(2))
 					for i, job := range jobs {
 						assertStoreJob(job, i, "value-enabled-destination-a")
@@ -504,7 +504,7 @@ var _ = Describe("Processor", func() {
 				_ = f(nil)
 			}).Return(nil).Times(1)
 			c.mockGatewayJobsDB.EXPECT().UpdateJobStatusInTx(context.Background(), gomock.Any(), gomock.Len(len(unprocessedJobsList)), gatewayCustomVal, nil).Times(1).After(callStoreRouter).
-				Do(func(txn jobsdb.UpdateSafeTx, statuses []*jobsdb.JobStatusT, _ interface{}, _ interface{}) {
+				Do(func(ctx context.Context, txn jobsdb.UpdateSafeTx, statuses []*jobsdb.JobStatusT, _ interface{}, _ interface{}) {
 					// jobs should be sorted by jobid, so order of statuses is different than order of jobs
 					for i := range unprocessedJobsList {
 						assertJobStatus(unprocessedJobsList[i], statuses[i], jobsdb.Succeeded.State, "200", `{"success":"OK"}`, 1)
@@ -687,7 +687,7 @@ var _ = Describe("Processor", func() {
 			}
 
 			callStoreBatchRouter := c.mockBatchRouterJobsDB.EXPECT().Store(context.Background(), gomock.Any()).Times(1).
-				Do(func(jobs []*jobsdb.JobT) {
+				Do(func(ctx context.Context, jobs []*jobsdb.JobT) {
 					Expect(jobs).To(HaveLen(2))
 					for i, job := range jobs {
 						assertStoreJob(job, i, "value-enabled-destination-b")
@@ -700,7 +700,7 @@ var _ = Describe("Processor", func() {
 				_ = f(nil)
 			}).Return(nil).Times(1)
 			c.mockGatewayJobsDB.EXPECT().UpdateJobStatusInTx(context.Background(), nil, gomock.Len(len(unprocessedJobsList)), gatewayCustomVal, nil).Times(1).After(callStoreBatchRouter).
-				Do(func(txn jobsdb.UpdateSafeTx, statuses []*jobsdb.JobStatusT, _ interface{}, _ interface{}) {
+				Do(func(ctx context.Context, txn jobsdb.UpdateSafeTx, statuses []*jobsdb.JobStatusT, _ interface{}, _ interface{}) {
 					for i := range unprocessedJobsList {
 						assertJobStatus(unprocessedJobsList[i], statuses[i], jobsdb.Succeeded.State, "200", `{"success":"OK"}`, 1)
 					}
@@ -915,19 +915,19 @@ var _ = Describe("Processor", func() {
 				_ = f(nil)
 			}).Return(nil).Times(1)
 			c.mockGatewayJobsDB.EXPECT().UpdateJobStatusInTx(context.Background(), gomock.Any(), gomock.Len(len(unprocessedJobsList)), gatewayCustomVal, nil).Times(1).
-				Do(func(txn jobsdb.UpdateSafeTx, statuses []*jobsdb.JobStatusT, _ interface{}, _ interface{}) {
+				Do(func(ctx context.Context, txn jobsdb.UpdateSafeTx, statuses []*jobsdb.JobStatusT, _ interface{}, _ interface{}) {
 					// job should be marked as successful regardless of transformer response
 					assertJobStatus(unprocessedJobsList[0], statuses[0], jobsdb.Succeeded.State, "200", `{"success":"OK"}`, 1)
 				})
 
 			// will be used to save failed events to failed keys table
-			c.mockProcErrorsDB.EXPECT().WithTx(context.Background(), gomock.Any()).Do(func(f func(tx *sql.Tx) error) {
+			c.mockProcErrorsDB.EXPECT().WithTx(gomock.Any()).Do(func(f func(tx *sql.Tx) error) {
 				_ = f(nil)
 			}).Times(1)
 
 			// One Store call is expected for all events
 			c.mockProcErrorsDB.EXPECT().Store(context.Background(), gomock.Any()).Times(1).
-				Do(func(jobs []*jobsdb.JobT) {
+				Do(func(ctx context.Context, jobs []*jobsdb.JobT) {
 					Expect(jobs).To(HaveLen(2))
 					for i, job := range jobs {
 						assertErrStoreJob(job, i, "value-enabled-destination-a")
@@ -1050,18 +1050,18 @@ var _ = Describe("Processor", func() {
 				_ = f(nil)
 			}).Return(nil).Times(1)
 			c.mockGatewayJobsDB.EXPECT().UpdateJobStatusInTx(context.Background(), gomock.Any(), gomock.Len(len(toRetryJobsList)+len(unprocessedJobsList)), gatewayCustomVal, nil).Times(1).
-				Do(func(txn jobsdb.UpdateSafeTx, statuses []*jobsdb.JobStatusT, _ interface{}, _ interface{}) {
+				Do(func(ctx context.Context, txn jobsdb.UpdateSafeTx, statuses []*jobsdb.JobStatusT, _ interface{}, _ interface{}) {
 					// job should be marked as successful regardless of transformer response
 					assertJobStatus(unprocessedJobsList[0], statuses[0], jobsdb.Succeeded.State, "200", `{"success":"OK"}`, 1)
 				})
 
-			c.mockProcErrorsDB.EXPECT().WithTx(context.Background(), gomock.Any()).Do(func(f func(tx *sql.Tx) error) {
+			c.mockProcErrorsDB.EXPECT().WithTx(gomock.Any()).Do(func(f func(tx *sql.Tx) error) {
 				_ = f(nil)
 			}).Return(nil).Times(1)
 
 			// One Store call is expected for all events
 			c.mockProcErrorsDB.EXPECT().Store(context.Background(), gomock.Any()).Times(1).
-				Do(func(jobs []*jobsdb.JobT) {
+				Do(func(ctx context.Context, jobs []*jobsdb.JobT) {
 					Expect(jobs).To(HaveLen(1))
 					for _, job := range jobs {
 						assertErrStoreJob(job)

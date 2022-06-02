@@ -327,17 +327,17 @@ func (mr *MockJobsDBMockRecorder) WithStoreSafeTx(arg0 interface{}) *gomock.Call
 }
 
 // WithTx mocks base method.
-func (m *MockJobsDB) WithTx(arg0 context.Context, arg1 func(*sql.Tx) error) error {
+func (m *MockJobsDB) WithTx(arg0 func(*sql.Tx) error) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WithTx", arg0, arg1)
+	ret := m.ctrl.Call(m, "WithTx", arg0)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // WithTx indicates an expected call of WithTx.
-func (mr *MockJobsDBMockRecorder) WithTx(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockJobsDBMockRecorder) WithTx(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockJobsDB)(nil).WithTx), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockJobsDB)(nil).WithTx), arg0)
 }
 
 // WithUpdateSafeTx mocks base method.

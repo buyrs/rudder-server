@@ -182,11 +182,11 @@ type JobsDB interface {
 	// WithTx begins a new transaction that can be used by the provided function.
 	// If the function returns an error, the transaction will rollback and return the error,
 	// otherwise the transaction will be commited and a nil error will be returned.
-	WithTx(context.Context, func(tx *sql.Tx) error) error
+	WithTx(func(tx *sql.Tx) error) error
 
 	// WithStoreSafeTx prepares a store-safe environment and then starts a transaction
 	// that can be used by the provided function.
-	WithStoreSafeTx(context.Context, func(tx StoreSafeTx) error) error
+	WithStoreSafeTx(func(tx StoreSafeTx) error) error
 
 	// Store stores the provided jobs to the database
 	Store(ctx context.Context, jobList []*JobT) error
@@ -211,7 +211,7 @@ type JobsDB interface {
 	// WithUpdateSafeTx prepares an update-safe environment and then starts a transaction
 	// that can be used by the provided function. An update-safe transaction shall be used if the provided function
 	// needs to call UpdateJobStatusInTx.
-	WithUpdateSafeTx(context.Context, func(tx UpdateSafeTx) error) error
+	WithUpdateSafeTx(func(tx UpdateSafeTx) error) error
 
 	// UpdateJobStatus updates the provided job statuses
 	UpdateJobStatus(ctx context.Context, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error
@@ -297,7 +297,7 @@ func (jd *HandleT) UpdateJobStatusInTx(ctx context.Context, tx UpdateSafeTx, sta
 	}
 
 	if tx.updateSafeTxSealIdentifier() != jd.Identifier() {
-		return jd.inUpdateSafeCtx(ctx, func() error {
+		return jd.inUpdateSafeCtx(func() error {
 			return updateCmd()
 		})
 	}
@@ -1625,7 +1625,7 @@ func (jd *HandleT) mustDropDS(ds dataSetT) {
 
 // dropDS drops a dataset
 func (jd *HandleT) dropDS(ds dataSetT) error {
-	return jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
+	return jd.WithTx(func(tx *sql.Tx) error {
 		var err error
 		if _, err = tx.Exec(fmt.Sprintf(`LOCK TABLE "%s" IN ACCESS EXCLUSIVE MODE;`, ds.JobStatusTable)); err != nil {
 			return err
@@ -1698,7 +1698,7 @@ func (jd *HandleT) mustRenameDS(ds dataSetT) error {
 	var sqlStatement string
 	var renamedJobStatusTable = fmt.Sprintf(`%s%s`, preDropTablePrefix, ds.JobStatusTable)
 	var renamedJobTable = fmt.Sprintf(`%s%s`, preDropTablePrefix, ds.JobTable)
-	return jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
+	return jd.WithTx(func(tx *sql.Tx) error {
 		sqlStatement = fmt.Sprintf(`ALTER TABLE "%s" RENAME TO "%s"`, ds.JobStatusTable, renamedJobStatusTable)
 		_, err := tx.Exec(sqlStatement)
 		if err != nil {
@@ -1739,7 +1739,7 @@ func (jd *HandleT) renameDS(ds dataSetT) error {
 	var sqlStatement string
 	var renamedJobStatusTable = fmt.Sprintf(`%s%s`, preDropTablePrefix, ds.JobStatusTable)
 	var renamedJobTable = fmt.Sprintf(`%s%s`, preDropTablePrefix, ds.JobTable)
-	return jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
+	return jd.WithTx(func(tx *sql.Tx) error {
 		sqlStatement = fmt.Sprintf(`ALTER TABLE IF EXISTS "%s" RENAME TO "%s"`, ds.JobStatusTable, renamedJobStatusTable)
 		_, err := jd.dbHandle.Exec(sqlStatement)
 		if err != nil {
@@ -1860,7 +1860,7 @@ func (jd *HandleT) migrateJobs(srcDS dataSetT, destDS dataSetT) (noJobsMigrated 
 	jobsToMigrate := append(unprocessedList.Jobs, retryList.Jobs...)
 	noJobsMigrated = len(jobsToMigrate)
 
-	err = jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
+	err = jd.WithTx(func(tx *sql.Tx) error {
 		if err := jd.copyJobsDS(tx, destDS, jobsToMigrate); err != nil {
 			return err
 		}
@@ -1936,9 +1936,9 @@ func (jd *HandleT) copyJobsDS(tx *sql.Tx, ds dataSetT, jobList []*JobT) error { 
 	return jd.copyJobsDSInTx(tx, ds, jobList)
 }
 
-func (jd *HandleT) WithStoreSafeTx(ctx context.Context, f func(tx StoreSafeTx) error) error {
+func (jd *HandleT) WithStoreSafeTx(f func(tx StoreSafeTx) error) error {
 	return jd.inStoreSafeCtx(func() error {
-		return jd.WithTx(ctx, func(tx *sql.Tx) error { return f(&storeSafeTx{tx: tx, identity: jd.tablePrefix}) })
+		return jd.WithTx(func(tx *sql.Tx) error { return f(&storeSafeTx{tx: tx, identity: jd.tablePrefix}) })
 	})
 }
 
@@ -1949,13 +1949,13 @@ func (jd *HandleT) inStoreSafeCtx(f func() error) error {
 	return f()
 }
 
-func (jd *HandleT) WithUpdateSafeTx(ctx context.Context, f func(tx UpdateSafeTx) error) error {
-	return jd.inUpdateSafeCtx(ctx, func() error {
-		return jd.WithTx(ctx, func(tx *sql.Tx) error { return f(&updateSafeTx{tx: tx, identity: jd.tablePrefix}) })
+func (jd *HandleT) WithUpdateSafeTx(f func(tx UpdateSafeTx) error) error {
+	return jd.inUpdateSafeCtx(func() error {
+		return jd.WithTx(func(tx *sql.Tx) error { return f(&updateSafeTx{tx: tx, identity: jd.tablePrefix}) })
 	})
 }
 
-func (jd *HandleT) inUpdateSafeCtx(ctx context.Context, f func() error) error {
+func (jd *HandleT) inUpdateSafeCtx(f func() error) error {
 	//The order of lock is very important. The migrateDSLoop
 	//takes lock in this order so reversing this will cause
 	//deadlocks
@@ -1966,8 +1966,8 @@ func (jd *HandleT) inUpdateSafeCtx(ctx context.Context, f func() error) error {
 	return f()
 }
 
-func (jd *HandleT) WithTx(ctx context.Context, f func(tx *sql.Tx) error) error {
-	tx, err := jd.dbHandle.BeginTx(ctx, nil)
+func (jd *HandleT) WithTx(f func(tx *sql.Tx) error) error {
+	tx, err := jd.dbHandle.Begin()
 	if err != nil {
 		return err
 	}
@@ -3064,7 +3064,7 @@ func (jd *HandleT) migrateDSLoop(ctx context.Context) {
 
 			}
 
-			err := jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
+			err := jd.WithTx(func(tx *sql.Tx) error {
 				if opID > 0 {
 					// marking the previous operation as done and
 					// starting the next operation must be performed
@@ -3473,7 +3473,7 @@ func (jd *HandleT) dropJournal() {
 
 func (jd *HandleT) JournalMarkStart(opType string, opPayload json.RawMessage) int64 {
 	var opID int64
-	err := jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
+	err := jd.WithTx(func(tx *sql.Tx) error {
 		var err error
 		opID, err = jd.JournalMarkStartInTx(tx, opType, opPayload)
 		return err
@@ -3502,7 +3502,7 @@ func (jd *HandleT) JournalMarkStartInTx(tx *sql.Tx, opType string, opPayload jso
 
 //JournalMarkDone marks the end of a journal action
 func (jd *HandleT) JournalMarkDone(opID int64) {
-	err := jd.WithTx(context.TODO(), func(tx *sql.Tx) error {
+	err := jd.WithTx(func(tx *sql.Tx) error {
 		return jd.journalMarkDoneInTx(tx, opID)
 	})
 	jd.assertError(err)
@@ -3684,7 +3684,7 @@ func (jd *HandleT) RecoverFromMigrationJournal() {
 }
 
 func (jd *HandleT) UpdateJobStatus(ctx context.Context, statusList []*JobStatusT, customValFilters []string, parameterFilters []ParameterFilterT) error {
-	return jd.WithUpdateSafeTx(ctx, func(tx UpdateSafeTx) error {
+	return jd.WithUpdateSafeTx(func(tx UpdateSafeTx) error {
 		return jd.UpdateJobStatusInTx(ctx, tx, statusList, customValFilters, parameterFilters)
 	})
 }
@@ -3809,10 +3809,9 @@ func (jd *HandleT) doUpdateJobStatusInTx(ctx context.Context, txHandler transact
 // Store stores new jobs to the jobsdb.
 // If enableWriterQueue is true, this goes through writer worker pool.
 func (jd *HandleT) Store(ctx context.Context, jobList []*JobT) error {
-	return jd.WithStoreSafeTx(ctx, func(tx StoreSafeTx) error {
+	return jd.WithStoreSafeTx(func(tx StoreSafeTx) error {
 		return jd.StoreInTx(ctx, tx, jobList)
 	})
-
 }
 
 // StoreInTx stores new jobs to the jobsdb.
@@ -3837,7 +3836,7 @@ func (jd *HandleT) StoreInTx(ctx context.Context, tx StoreSafeTx, jobList []*Job
 
 func (jd *HandleT) StoreWithRetryEach(ctx context.Context, jobList []*JobT) map[uuid.UUID]string {
 	var res map[uuid.UUID]string
-	_ = jd.WithStoreSafeTx(ctx, func(tx StoreSafeTx) error {
+	_ = jd.WithStoreSafeTx(func(tx StoreSafeTx) error {
 		res = jd.StoreWithRetryEachInTx(ctx, tx, jobList)
 		return nil
 	})

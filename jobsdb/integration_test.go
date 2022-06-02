@@ -1031,7 +1031,7 @@ func consume(t testing.TB, db *jobsdb.HandleT, count int) {
 func getPayloadSize(t *testing.T, jobsDB jobsdb.JobsDB, job *jobsdb.JobT) (int64, error) {
 	var size int64
 	var tables []string
-	err := jobsDB.WithTx(context.Background(), func(tx *sql.Tx) error {
+	err := jobsDB.WithTx(func(tx *sql.Tx) error {
 		rows, err := tx.Query(fmt.Sprintf("SELECT tablename FROM pg_catalog.pg_tables where tablename like '%s_jobs_%%'", jobsDB.Identifier()))
 		require.NoError(t, err)
 		for rows.Next() {
