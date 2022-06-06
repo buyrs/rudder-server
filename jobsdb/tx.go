@@ -10,7 +10,8 @@ type Tx interface {
 
 type internalTx struct {
 	successListeners []func()
-	tx               *sql.Tx
+
+	tx *sql.Tx
 }
 
 func (r *internalTx) SqlTx() *sql.Tx {
