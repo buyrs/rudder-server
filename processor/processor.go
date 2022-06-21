@@ -1187,6 +1187,7 @@ func (proc *HandleT) processJobsForDest(subJobs subJob, parsedEventList [][]type
 			ok = singularEvents != nil
 		}
 		writeKey := gjson.Get(string(batchEvent.EventPayload), "writeKey").Str
+		sourceForBatchEvent, sourceIdError := getSourceByWriteKey(writeKey)
 		requestIP := gjson.Get(string(batchEvent.EventPayload), "requestIP").Str
 		receivedAt := gjson.Get(string(batchEvent.EventPayload), "receivedAt").Time()
 
@@ -1218,8 +1219,6 @@ func (proc *HandleT) processJobsForDest(subJobs subJob, parsedEventList [][]type
 					SingularEvent: singularEvent,
 					ReceivedAt:    receivedAt,
 				}
-
-				sourceForSingularEvent, sourceIdError := getSourceByWriteKey(writeKey)
 				if sourceIdError != nil {
 					proc.logger.Error("Dropping Job since Source not found for writeKey : ", writeKey)
 					continue
@@ -1229,7 +1228,7 @@ func (proc *HandleT) processJobsForDest(subJobs subJob, parsedEventList [][]type
 					singularEvent,
 					batchEvent,
 					receivedAt,
-					sourceForSingularEvent,
+					sourceForBatchEvent,
 				)
 
 				// REPORTING - GATEWAY metrics - START
@@ -1260,15 +1259,14 @@ func (proc *HandleT) processJobsForDest(subJobs subJob, parsedEventList [][]type
 				enhanceWithTimeFields(&shallowEventCopy, singularEvent, receivedAt)
 				enhanceWithMetadata(commonMetadataFromSingularEvent, &shallowEventCopy, backendconfig.DestinationT{})
 
-				source, sourceError := getSourceByWriteKey(writeKey)
-				if sourceError != nil {
+				if sourceIdError != nil {
 					proc.logger.Error("Source not found for writeKey : ", writeKey)
 				} else {
 					// TODO: TP ID preference 1.event.context set by rudderTyper   2.From WorkSpaceConfig (currently being used)
-					shallowEventCopy.Metadata.TrackingPlanId = source.DgSourceTrackingPlanConfig.TrackingPlan.Id
-					shallowEventCopy.Metadata.TrackingPlanVersion = source.DgSourceTrackingPlanConfig.TrackingPlan.Version
-					shallowEventCopy.Metadata.SourceTpConfig = source.DgSourceTrackingPlanConfig.Config
-					shallowEventCopy.Metadata.MergedTpConfig = source.DgSourceTrackingPlanConfig.GetMergedConfig(commonMetadataFromSingularEvent.EventType)
+					shallowEventCopy.Metadata.TrackingPlanId = sourceForBatchEvent.DgSourceTrackingPlanConfig.TrackingPlan.Id
+					shallowEventCopy.Metadata.TrackingPlanVersion = sourceForBatchEvent.DgSourceTrackingPlanConfig.TrackingPlan.Version
+					shallowEventCopy.Metadata.SourceTpConfig = sourceForBatchEvent.DgSourceTrackingPlanConfig.Config
+					shallowEventCopy.Metadata.MergedTpConfig = sourceForBatchEvent.DgSourceTrackingPlanConfig.GetMergedConfig(commonMetadataFromSingularEvent.EventType)
 				}
 
 				groupedEventsByWriteKey[WriteKeyT(writeKey)] = append(groupedEventsByWriteKey[WriteKeyT(writeKey)], shallowEventCopy)
