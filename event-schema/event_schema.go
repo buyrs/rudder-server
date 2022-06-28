@@ -356,6 +356,7 @@ func (manager *EventSchemaManagerT) handleEvent(writeKey string, event EventT) {
 		}
 
 		if wasOffloaded {
+			// TODO: Handling of err needs to be done as this might cause a panic in statement below !
 			manager.reloadModel(offloadedModel)
 			eventModel, ok = manager.eventModelMap[WriteKey(writeKey)][EventType(eventType)][EventIdentifier(eventIdentifier)]
 			if !ok {
@@ -364,6 +365,8 @@ func (manager *EventSchemaManagerT) handleEvent(writeKey string, event EventT) {
 			}
 			stats.NewTaggedStat("reload_offloaded_event_model", stats.CountType, stats.Tags{"module": "event_schemas", "writeKey": eventModel.WriteKey, "eventIdentifier": eventModel.EventIdentifier}).Increment()
 		} else if wasArchived {
+			// If we saw event from an archived event model, reload the model into memory
+			// and archive the oldest model then. TODO: A test case for this ?
 			if totalEventModels >= eventModelLimit {
 				archiveOldestLastSeenModel()
 			}
@@ -841,6 +844,7 @@ func (manager *EventSchemaManagerT) reloadModel(offloadedModel *OffloadedModelT)
 	return nil
 }
 
+//reloadSchemaVersion fetches the latest state of the schema version from db and add the information
 func (manager *EventSchemaManagerT) reloadSchemaVersion(offloadedVersion *OffloadedSchemaVersionT) error {
 	pkgLogger.Debugf("reloading schema vesion from db: %s\n", offloadedVersion.UUID)
 	err := manager.populateSchemaVersion(offloadedVersion)
@@ -902,6 +906,7 @@ func (manager *EventSchemaManagerT) populateEventModels(uuidFilters ...string) e
 	}
 	defer func() { _ = rows.Close() }()
 
+	// for each event model, we need to fetch the data from db.
 	for rows.Next() {
 		var eventModel EventModelT
 		var privateDataRaw json.RawMessage
@@ -934,6 +939,13 @@ func (manager *EventSchemaManagerT) populateEventModels(uuidFilters ...string) e
 		}
 		manager.updateEventModelCache(&eventModel, false)
 		populateFrequencyCounters(eventModel.UUID, privateData.FrequencyCounters)
+
+		// This check implies that even though DB had more frequency counters,
+		// we captured lesser counters in memory for the event model and hence this change needs to be
+		// purged back into the DB. Therefore, we add it to updatedEventModels map.
+		if len(privateData.FrequencyCounters) > len(countersCache[eventModel.UUID]) {
+			updatedEventModels[eventModel.UUID] = &eventModel // Make the event model dirty
+		}
 	}
 	return nil
 }
@@ -1035,8 +1047,14 @@ func (manager *EventSchemaManagerT) populateSchemaVersion(o *OffloadedSchemaVers
 	}
 
 	manager.updateSchemaVersionCache(&schemaVersion, false)
-
 	populateFrequencyCounters(schemaVersion.SchemaHash, privateData.FrequencyCounters)
+
+	if len(privateData.FrequencyCounters) > len(countersCache[schemaVersion.SchemaHash]) {
+		// Mark the schema version as dirty
+		// as it will push the updated schema version back to the db.
+		updatedSchemaVersions[schemaVersion.UUID] = &schemaVersion
+	}
+
 	return nil
 }
 

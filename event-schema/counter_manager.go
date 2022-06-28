@@ -14,12 +14,30 @@ func init() {
 	}
 }
 
-func populateFrequencyCounters(schemaHash string, frequencyCounters []*FrequencyCounter) {
+// populateFrequencyCountersBounded is responsible for capturing the frequency counters which
+// are available in the db and store them in memory but in a bounded manner.
+func populateFrequencyCountersBounded(schemaHash string, frequencyCounters []*FrequencyCounter, bound int) {
 	frequencyCountersMap := make(map[string]*FrequencyCounter)
+	count := 0
+
 	for _, fc := range frequencyCounters {
+		// If count exceeds for a particular schema hash, iterate over the
+		// remaining frequency counters.
+		if count >= bound {
+			continue
+		}
+
 		frequencyCountersMap[fc.Name] = NewPeristedFrequencyCounter(fc)
+		count++
 	}
 	countersCache[schemaHash] = frequencyCountersMap
+}
+
+// populateFrequencyCounters is responsible for capturing the frequency counters
+// for a particular schema version into memory for fast computation.
+func populateFrequencyCounters(schemaHash string, frequencyCounters []*FrequencyCounter) {
+	populateFrequencyCountersBounded(schemaHash, frequencyCounters, frequencyCounterLimit)
+	return
 }
 
 func getAllFrequencyCounters(schemaHash string) []*FrequencyCounter {
@@ -36,26 +54,32 @@ func getAllFrequencyCounters(schemaHash string) []*FrequencyCounter {
 	return frequencyCounters
 }
 
-func getFrequencyCounter(schemaHash, key string) *FrequencyCounter {
+func getFrequencyCounterBounded(schemaHash string, key string, bound int) *FrequencyCounter {
+
 	schemaVersionCounters, ok := countersCache[schemaHash]
 	if !ok {
 		schemaVersionCounters = make(map[string]*FrequencyCounter)
 		countersCache[schemaHash] = schemaVersionCounters
 	}
 
-	// Limit breached for adding frequency counters,
-	// stop adding more values.
-	if len(schemaVersionCounters) > frequencyCounterLimit {
-		return nil
-	}
-
+	// Here we add a new frequency counter for schemaVersionCounter
 	frequencyCounter, ok := schemaVersionCounters[key]
 	if !ok {
+		// Check if limit breached for adding frequency counters,
+		// if yes, then stop adding the frequency counters.
+		if len(schemaVersionCounters) >= bound {
+			return nil
+		}
+
 		frequencyCounter = NewFrequencyCounter(key)
 		schemaVersionCounters[key] = frequencyCounter
 	}
 
 	return frequencyCounter
+}
+
+func getFrequencyCounter(schemaHash string, key string) *FrequencyCounter {
+	return getFrequencyCounterBounded(schemaHash, key, frequencyCounterLimit)
 }
 
 func getSchemaVersionCounters(schemaHash string) map[string][]*CounterItem {
