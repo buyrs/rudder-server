@@ -195,7 +195,7 @@ func loadConfig() {
 
 	config.RegisterIntConfigVariable(5, &reservoirSampleSize, true, 1, "EventSchemas.sampleEventsSize")
 	config.RegisterIntConfigVariable(200, &eventModelLimit, true, 1, "EventSchemas.eventModelLimit")
-	config.RegisterIntConfigVariable(10, &frequencyCounterLimit, true, 1, "EventSchemas.frequencyCounterLimit")
+	config.RegisterIntConfigVariable(200, &frequencyCounterLimit, true, 1, "EventSchemas.frequencyCounterLimit")
 	config.RegisterIntConfigVariable(20, &schemaVersionPerEventModelLimit, true, 1, "EventSchemas.schemaVersionPerEventModelLimit")
 	config.RegisterBoolConfigVariable(false, &shouldCaptureNilAsUnknowns, true, "EventSchemas.captureUnknowns")
 	config.RegisterDurationConfigVariable(60, &offloadLoopInterval, true, time.Second, []string{"EventSchemas.offloadLoopInterval"}...)
@@ -459,6 +459,7 @@ func (manager *EventSchemaManagerT) handleEvent(writeKey string, event EventT) {
 			schemaVersion = manager.createSchema(schema, schemaHash, eventModel, totalSchemaVersions, archiveOldestLastSeenVersion)
 		}
 	}
+	pkgLogger.Errorf("Here marking the event models and schema version as stale: %s", eventModel.UUID)
 	schemaVersion.LastSeen = timeutil.Now()
 	manager.updateSchemaVersionCache(schemaVersion, true)
 
@@ -939,13 +940,6 @@ func (manager *EventSchemaManagerT) populateEventModels(uuidFilters ...string) e
 		}
 		manager.updateEventModelCache(&eventModel, false)
 		populateFrequencyCounters(eventModel.UUID, privateData.FrequencyCounters)
-
-		// This check implies that even though DB had more frequency counters,
-		// we captured lesser counters in memory for the event model and hence this change needs to be
-		// purged back into the DB. Therefore, we add it to updatedEventModels map.
-		if len(privateData.FrequencyCounters) > len(countersCache[eventModel.UUID]) {
-			updatedEventModels[eventModel.UUID] = &eventModel // Make the event model dirty
-		}
 	}
 	return nil
 }
@@ -1048,12 +1042,6 @@ func (manager *EventSchemaManagerT) populateSchemaVersion(o *OffloadedSchemaVers
 
 	manager.updateSchemaVersionCache(&schemaVersion, false)
 	populateFrequencyCounters(schemaVersion.SchemaHash, privateData.FrequencyCounters)
-
-	if len(privateData.FrequencyCounters) > len(countersCache[schemaVersion.SchemaHash]) {
-		// Mark the schema version as dirty
-		// as it will push the updated schema version back to the db.
-		updatedSchemaVersions[schemaVersion.UUID] = &schemaVersion
-	}
 
 	return nil
 }

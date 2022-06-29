@@ -21,10 +21,10 @@ func populateFrequencyCountersBounded(schemaHash string, frequencyCounters []*Fr
 	count := 0
 
 	for _, fc := range frequencyCounters {
-		// If count exceeds for a particular schema hash, iterate over the
-		// remaining frequency counters.
+		// If count exceeds for a particular schema hash, break
+		// the loop
 		if count >= bound {
-			continue
+			break
 		}
 
 		frequencyCountersMap[fc.Name] = NewPeristedFrequencyCounter(fc)
@@ -62,15 +62,36 @@ func getFrequencyCounterBounded(schemaHash string, key string, bound int) *Frequ
 		countersCache[schemaHash] = schemaVersionCounters
 	}
 
+	diff := bound - len(schemaVersionCounters)
+	// bound reached, not allowed adding more values.
+	if diff == 0 {
+		// Just check and return value from the map
+		// no need to add anything to it.
+		return schemaVersionCounters[key]
+	}
+
+	// If we have exceeded the bound, we need to trim it
+	// to the new bound. This way whatever we have stored in memory
+	// gets purged which will be flushed back to the database on a schedule.
+	if diff < 0 {
+
+		toDelete := -1 * diff
+		keys := make([]string, len(schemaVersionCounters))
+
+		i := 0
+		for k := range schemaVersionCounters {
+			keys[i] = k
+			i++
+		}
+		for _, k := range keys[:toDelete] {
+			delete(schemaVersionCounters, k)
+		}
+
+	}
+
 	// Here we add a new frequency counter for schemaVersionCounter
 	frequencyCounter, ok := schemaVersionCounters[key]
 	if !ok {
-		// Check if limit breached for adding frequency counters,
-		// if yes, then stop adding the frequency counters.
-		if len(schemaVersionCounters) >= bound {
-			return nil
-		}
-
 		frequencyCounter = NewFrequencyCounter(key)
 		schemaVersionCounters[key] = frequencyCounter
 	}
