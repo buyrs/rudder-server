@@ -116,7 +116,7 @@ func TestHandleNewEventSchema(t *testing.T) {
 func TestHandleEventBoundsFrequencyCounter(t *testing.T) {
 	t.Log("Testing the process to bound frequency counters within event model")
 
-	writeKey := "my-write-key" // TODO: Generate a unique random write key ?
+	writeKey := "my-write-key"
 	manager := EventSchemaManagerT{
 		dbHandle:             pgResource.DB,
 		disableInMemoryCache: false,
@@ -154,7 +154,6 @@ func TestHandleEventBoundsFrequencyCounter(t *testing.T) {
 
 func getFrequencyCountersForEventModel(handle *sql.DB, uuid string) ([]*FrequencyCounter, error) {
 	query := `SELECT private_data FROM event_models WHERE uuid = $1`
-
 	var privateDataRaw json.RawMessage
 	err := handle.QueryRow(query, uuid).Scan(&privateDataRaw)
 	if err != nil {
@@ -173,9 +172,13 @@ func getFrequencyCountersForEventModel(handle *sql.DB, uuid string) ([]*Frequenc
 func BenchmarkEventSchemaHandleEvent(b *testing.B) {
 	b.Log("Benchmarking the handling event of event schema")
 
-	var eventStr = `{"batch": [{"type": "track", "event": "Demo Track", "sentAt": "2019-08-12T05:08:30.909Z", "channel": "android-sdk", "context": {"app": {"name": "RudderAndroidClient", "build": "1", "version": "1.0", "namespace": "com.rudderlabs.android.sdk"}, "device": {"id": "49e4bdd1c280bc00", "name": "generic_x86", "model": "Android SDK built for x86", "manufacturer": "Google"}, "locale": "en-US", "screen": {"width": 1080, "height": 1794, "density": 420}, "traits": {"anonymousId": "49e4bdd1c280bc00"}, "library": {"name": "com.rudderstack.android.sdk.core"}, "network": {"carrier": "Android"}, "user_agent": "Dalvik/2.1.0 (Linux; U; Android 9; Android SDK built for x86 Build/PSR1.180720.075)"}, "rudderId": "90ca6da0-292e-4e79-9880-f8009e0ae4a3", "messageId": "a82717d0-b939-47bd-9592-59bbbea66c1a", "properties": {"label": "Demo Label", "value": 5, "testMap": {"t1": "a", "t2": 4}, "category": "Demo Category", "floatVal": 4.501, "testArray": [{"id": "elem1", "value": "e1"}, {"id": "elem2", "value": "e2"}]}, "anonymousId": "anon_id", "integrations": {"All": true}, "originalTimestamp": "2019-08-12T05:08:30.909Z"}], "writeKey": "29grCPTQ6XrVOSK76M7vfE5BWjb", "requestIP": "127.0.0.1", "receivedAt": "2022-06-15T13:51:08.754+05:30"}`
+	byt, err := os.ReadFile("./test_input.json")
+	if err != nil {
+		b.Errorf("Unable to perform benchmark test as unable to read the input value")
+		return
+	}
 	var eventPayload EventPayloadT
-	if err := json.Unmarshal([]byte(eventStr), &eventPayload); err != nil {
+	if err := json.Unmarshal(byt, &eventPayload); err != nil {
 		b.Errorf("Invalid request payload for unmarshalling: %v", err.Error())
 		return
 	}
@@ -187,13 +190,13 @@ func BenchmarkEventSchemaHandleEvent(b *testing.B) {
 		schemaVersionMap:     SchemaVersionMapT{},
 	}
 
+	// frequencyCounterLimit = ?
 	for i := 0; i < b.N; i++ {
-		eventPayload.Batch[0]["dynamicProperty"] = i
-		manager.handleEvent("", eventPayload.Batch[0])
+		manager.handleEvent("dummy-key", eventPayload.Batch[0])
 	}
 
 	// flush the event schemas to the database.
-	err := manager.flushEventSchemasToDB()
+	err = manager.flushEventSchemasToDB()
 	if err != nil {
 		b.Errorf("Unable to flush events back to database")
 	}

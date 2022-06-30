@@ -459,7 +459,7 @@ func (manager *EventSchemaManagerT) handleEvent(writeKey string, event EventT) {
 			schemaVersion = manager.createSchema(schema, schemaHash, eventModel, totalSchemaVersions, archiveOldestLastSeenVersion)
 		}
 	}
-	pkgLogger.Errorf("Here marking the event models and schema version as stale: %s", eventModel.UUID)
+
 	schemaVersion.LastSeen = timeutil.Now()
 	manager.updateSchemaVersionCache(schemaVersion, true)
 
