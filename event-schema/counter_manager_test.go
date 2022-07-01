@@ -12,8 +12,8 @@ func TestPopulateFrequencyCounterBounded(t *testing.T) {
 
 	hash := "my-unique-schema-hash"
 	counters := []*FrequencyCounter{
-		&FrequencyCounter{Name: "prop1"},
-		&FrequencyCounter{Name: "prop2"},
+		{Name: "prop1"},
+		{Name: "prop2"},
 	}
 	populateFrequencyCountersBounded(hash, counters, 1)
 
@@ -27,8 +27,8 @@ func TestGetFreqCounterWhenLimitBreached(t *testing.T) {
 
 	hash := uuid.New()
 	countersCache[hash.String()] = map[string]*FrequencyCounter{
-		"key1": &FrequencyCounter{Name: "key1"},
-		"key2": &FrequencyCounter{Name: "key2"},
+		"key1": {Name: "key1"},
+		"key2": {Name: "key2"},
 	}
 
 	// Updated frequencyCounterLimit bound
@@ -48,5 +48,4 @@ func TestGetFreqCounterWhenLimitBreached(t *testing.T) {
 	fq = getFrequencyCounterBounded(hash.String(), "new-key", 3)
 	require.NotNil(t, fq)
 	require.Equal(t, "new-key", fq.Name)
-
 }

@@ -58,7 +58,6 @@ func init() {
 	offloadedSchemaVersions = make(map[string]map[string]*OffloadedSchemaVersionT)
 	archivedEventModels = make(map[string]map[string]*OffloadedModelT)
 	archivedSchemaVersions = make(map[string]map[string]*OffloadedSchemaVersionT)
-
 }
 
 // EventModelT is a struct that represents EVENT_MODELS_TABLE
@@ -637,7 +636,6 @@ func getPrivateDataJSON(schemaHash string) []byte {
 }
 
 func (manager *EventSchemaManagerT) flushEventSchemas() {
-
 	// This will run forever. If you want to quit in between, change it to ticker and call stop()
 	// Otherwise the ticker won't be GC'ed
 	ticker := time.Tick(flushInterval)
@@ -659,7 +657,6 @@ func (manager *EventSchemaManagerT) flushEventSchemas() {
 // flushEventSchemasToDB is the main function which is responsible
 // for pushing the deltas collected in-memory into the database.
 func (manager *EventSchemaManagerT) flushEventSchemasToDB() error {
-
 	var flushDBHandle *sql.DB
 	defer func() {
 		if r := recover(); r != nil {
@@ -845,7 +842,7 @@ func (manager *EventSchemaManagerT) reloadModel(offloadedModel *OffloadedModelT)
 	return nil
 }
 
-//reloadSchemaVersion fetches the latest state of the schema version from db and add the information
+// reloadSchemaVersion fetches the latest state of the schema version from db and add the information
 func (manager *EventSchemaManagerT) reloadSchemaVersion(offloadedVersion *OffloadedSchemaVersionT) error {
 	pkgLogger.Debugf("reloading schema vesion from db: %s\n", offloadedVersion.UUID)
 	err := manager.populateSchemaVersion(offloadedVersion)

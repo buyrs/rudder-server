@@ -54,8 +54,7 @@ func getAllFrequencyCounters(schemaHash string) []*FrequencyCounter {
 	return frequencyCounters
 }
 
-func getFrequencyCounterBounded(schemaHash string, key string, bound int) *FrequencyCounter {
-
+func getFrequencyCounterBounded(schemaHash, key string, bound int) *FrequencyCounter {
 	schemaVersionCounters, ok := countersCache[schemaHash]
 	if !ok {
 		schemaVersionCounters = make(map[string]*FrequencyCounter)
@@ -99,7 +98,7 @@ func getFrequencyCounterBounded(schemaHash string, key string, bound int) *Frequ
 	return frequencyCounter
 }
 
-func getFrequencyCounter(schemaHash string, key string) *FrequencyCounter {
+func getFrequencyCounter(schemaHash, key string) *FrequencyCounter {
 	return getFrequencyCounterBounded(schemaHash, key, frequencyCounterLimit)
 }
 
