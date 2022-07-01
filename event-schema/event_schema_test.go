@@ -142,7 +142,6 @@ func TestHandleEventBoundsFrequencyCounter(t *testing.T) {
 	// reload the models from the database which should now respect
 	// that frequency counters have now been bounded.
 	manager.handleEvent(writeKey, eventPayload.Batch[0])
-	t.Logf("%#v", updatedEventModels)
 	require.Equal(t, len(countersCache[eventModel.UUID]), 3)
 
 	// flush the events back to the database.

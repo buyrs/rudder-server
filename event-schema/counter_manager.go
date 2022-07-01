@@ -76,17 +76,17 @@ func getFrequencyCounterBounded(schemaHash string, key string, bound int) *Frequ
 	if diff < 0 {
 
 		toDelete := -1 * diff
-		keys := make([]string, len(schemaVersionCounters))
-
-		i := 0
 		for k := range schemaVersionCounters {
-			keys[i] = k
-			i++
-		}
-		for _, k := range keys[:toDelete] {
-			delete(schemaVersionCounters, k)
+			if toDelete > 0 {
+				delete(schemaVersionCounters, k)
+				toDelete--
+			} else {
+				break
+			}
 		}
 
+		// Once the values are trimmed, simply return the lookup
+		return schemaVersionCounters[key]
 	}
 
 	// Here we add a new frequency counter for schemaVersionCounter
